@@ -101,6 +101,7 @@ func NewDiskMetricStore(
 	}
 
 	go dms.loop(persistenceInterval)
+	go dms.deleteExpiredKeys()
 	return dms
 }
 
@@ -201,6 +202,26 @@ func (dms *DiskMetricStore) GetMetricFamiliesMap() GroupingKeyToMetricGroup {
 	return groupsCopy
 }
 
+func (dms *DiskMetricStore) deleteExpiredKeys() {
+	for {
+		t := time.After(time.Minute)
+		select {
+		case <-t:
+		case <-dms.drain:
+			break
+		}
+		now := time.Now()
+		dms.lock.Lock()
+		for k, g := range dms.metricGroups {
+			if g.ExpiredOn.Sub(now) < 0 {
+				level.Info(dms.logger).Log("msg", "delete metric Groups", "key", k, "expiredOn", g.ExpiredOn)
+				delete(dms.metricGroups, k)
+			}
+		}
+		dms.lock.Unlock()
+	}
+}
+
 func (dms *DiskMetricStore) loop(persistenceInterval time.Duration) {
 	lastPersist := time.Now()
 	persistScheduled := false
@@ -290,6 +311,8 @@ func (dms *DiskMetricStore) processWriteRequest(wr WriteRequest) {
 			}
 		}
 	}
+	group.ExpiredOn = wr.Timestamp.Add(time.Minute * 3)
+	dms.metricGroups[key] = group
 	wr.MetricFamilies[pushMetricName] = newPushTimestampGauge(wr.Labels, wr.Timestamp)
 	// Only add a zero push-failed metric if none is there yet, so that a
 	// previously added fail timestamp is retained.

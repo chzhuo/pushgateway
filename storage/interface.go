@@ -110,6 +110,8 @@ type GroupingKeyToMetricGroup map[string]MetricGroup
 type MetricGroup struct {
 	Labels  map[string]string
 	Metrics NameToTimestampedMetricFamilyMap
+
+	ExpiredOn time.Time
 }
 
 // SortedLabels returns the label names of the grouping labels sorted
